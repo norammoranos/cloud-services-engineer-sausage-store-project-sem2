@@ -53,6 +53,17 @@ VAULT_TOKEN
 | `KUBE_CONFIG` | kubeconfig для целевого namespace |
 | `VAULT_HOST` / `VAULT_TOKEN` | доступ backend к Vault |
 
+Необязательные secrets для замены дефолтных паролей из `values.yaml` при деплое:
+
+| Secret | Какое значение Helm переопределяет |
+| ------ | ---------------------------------- |
+| `BACKEND_REPORT_MONGO_URI` | `backend-report.secret.db` |
+| `POSTGRES_PASSWORD` | `infra.postgresql.password` |
+| `MONGO_ROOT_PASSWORD` | `infra.mongodb.rootPassword` |
+| `MONGO_APP_PASSWORD` | `infra.mongodb.appPassword` |
+
+Если эти secrets не заданы, chart использует default-значения из `sausage-store-chart/values.yaml`.
+
 `NEXUS_HELM_REPO` указывает на hosted Helm repository:
 
 ```text

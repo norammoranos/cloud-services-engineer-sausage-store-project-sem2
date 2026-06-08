@@ -161,7 +161,30 @@ jobs:
           helm repo update
 
       - name: Deploy Sausage Store
+        env:
+          BACKEND_REPORT_MONGO_URI: ${{ secrets.BACKEND_REPORT_MONGO_URI }}
+          POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
+          MONGO_ROOT_PASSWORD: ${{ secrets.MONGO_ROOT_PASSWORD }}
+          MONGO_APP_PASSWORD: ${{ secrets.MONGO_APP_PASSWORD }}
         run: |
+          secret_overrides=()
+
+          if [ -n "${BACKEND_REPORT_MONGO_URI}" ]; then
+            secret_overrides+=(--set-string "backend-report.secret.db=${BACKEND_REPORT_MONGO_URI}")
+          fi
+
+          if [ -n "${POSTGRES_PASSWORD}" ]; then
+            secret_overrides+=(--set-string "infra.postgresql.password=${POSTGRES_PASSWORD}")
+          fi
+
+          if [ -n "${MONGO_ROOT_PASSWORD}" ]; then
+            secret_overrides+=(--set-string "infra.mongodb.rootPassword=${MONGO_ROOT_PASSWORD}")
+          fi
+
+          if [ -n "${MONGO_APP_PASSWORD}" ]; then
+            secret_overrides+=(--set-string "infra.mongodb.appPassword=${MONGO_APP_PASSWORD}")
+          fi
+
           helm upgrade --install "${HELM_RELEASE_NAME}" "nexus/${HELM_RELEASE_NAME}" \
             --version "${CHART_VERSION}" \
             --namespace "${SAUSAGE_STORE_NAMESPACE}" \
@@ -172,6 +195,7 @@ jobs:
             --set frontend.ingress.host="${INGRESS_HOST}" \
             --set global.vault.host="${VAULT_HOST}" \
             --set global.vault.vaultToken="${VAULT_TOKEN}" \
+            "${secret_overrides[@]}" \
             --wait \
             --timeout 10m
 
