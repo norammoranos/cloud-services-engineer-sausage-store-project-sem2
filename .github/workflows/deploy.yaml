@@ -1,82 +1,191 @@
 name: Sausage Store Deploy
 
 on:
+  workflow_dispatch:
   push:
     branches:
       - main
 
 env:
+  DOCKER_IMAGE_PREFIX: noranori
+  HELM_RELEASE_NAME: sausage-store
+  HELM_CHART_PATH: sausage-store-chart
+  SAUSAGE_STORE_NAMESPACE: r-devops-magistracy-project-2sem-1003690211
+  INGRESS_HOST: front-norammoranos.2sem.students-projects.ru
   NEXUS_HELM_REPO: ${{ secrets.NEXUS_HELM_REPO }}
   NEXUS_HELM_REPO_USER: ${{ secrets.NEXUS_HELM_REPO_USER }}
   NEXUS_HELM_REPO_PASSWORD: ${{ secrets.NEXUS_HELM_REPO_PASSWORD }}
-  SAUSAGE_STORE_NAMESPACE: YOUR_NAMESPACE
   KUBE_CONFIG: ${{ secrets.KUBE_CONFIG }}
+  VAULT_HOST: ${{ secrets.VAULT_HOST }}
   VAULT_TOKEN: ${{ secrets.VAULT_TOKEN }}
 
 jobs:
-  # Сборка и пуш образов в докерхаб:
+  preflight:
+    name: Validate required secrets
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check required secret values
+        env:
+          DOCKER_USER: ${{ secrets.DOCKER_USER }}
+          DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}
+          NEXUS_HELM_REPO: ${{ secrets.NEXUS_HELM_REPO }}
+          NEXUS_HELM_REPO_USER: ${{ secrets.NEXUS_HELM_REPO_USER }}
+          NEXUS_HELM_REPO_PASSWORD: ${{ secrets.NEXUS_HELM_REPO_PASSWORD }}
+          KUBE_CONFIG: ${{ secrets.KUBE_CONFIG }}
+          VAULT_HOST: ${{ secrets.VAULT_HOST }}
+          VAULT_TOKEN: ${{ secrets.VAULT_TOKEN }}
+        run: |
+          missing=0
+          for name in \
+            DOCKER_USER \
+            DOCKER_PASSWORD \
+            NEXUS_HELM_REPO \
+            NEXUS_HELM_REPO_USER \
+            NEXUS_HELM_REPO_PASSWORD \
+            KUBE_CONFIG \
+            VAULT_HOST \
+            VAULT_TOKEN
+          do
+            if [ -z "${!name}" ]; then
+              echo "::error::${name} GitHub Secret is not configured"
+              missing=1
+            fi
+          done
+          exit "${missing}"
+
   build_and_push_to_docker_hub:
-      name: Push Docker image to DockerHub
-      runs-on: ubuntu-latest
-      steps:
-        - name: Check out the repo
-          # Получение исходного кода из репозитория:
-          uses: actions/checkout@v3
-        - name: Set up Docker Buildx
-          # Установка сборщика контейнеров Docker:
-          uses: docker/setup-buildx-action@v2
-        - name: Login to Docker 
-          # Авторизация на Docker Hub:
-          uses: docker/login-action@v2
-          # При помощи with передаём в action параметры username и password:
-          with:
-            username: ${{ secrets.DOCKER_USER }}
-            password: ${{ secrets.DOCKER_PASSWORD }}
-            # Хорошо ли держать логин и пароль прямо в коде workflow?
-            # Нет, это нехорошо. Хранить пароль надо в Secrets.
-        - name: Push Backend to DockerHub
-          # Одновременный билд и пуш образа в Docker Hub:
-          uses: docker/build-push-action@v4
-          with:
-            # Параметр context: ./backend/ указывает, что нужный Dockerfile 
-            # находится в ./backend/
-            context: ./backend/
-            # Параметр push: true указывает, что образ нужно не только собрать,
-            # но и отправить на Docker Hub:
-            push: true
-            # В параметре tags задаётся название и тег для образа.
-            # Для каждого пересобранного образа 
-            # устанавливаем тег latest, чтобы потом
-            # на сервере и в docker-compose.yml не указывать версию образа:
-            tags: YOUR_DOCKERHUB/sausage-backend:latest
-            build-args: |
-              VERSION=${{ github.sha }}
-        - name: Push Frontend to DockerHub
-          uses: docker/build-push-action@v4
-          with:
-            context: ./frontend/
-            push: true
-            tags: YOUR_DOCKERHUB/sausage-frontend:latest
-        - name: Push Backend-report to DockerHub
-          uses: docker/build-push-action@v4
-          with:
-            context: ./backend-report/
-            push: true
-            tags: YOUR_DOCKERHUB/sausage-backend-report:latest
-  # Упаковываем helm-чарт и пушим его в Nexus
+    name: Build and push Docker images
+    runs-on: ubuntu-latest
+    needs: preflight
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USER }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      - name: Build and push backend
+        uses: docker/build-push-action@v6
+        with:
+          context: ./backend
+          push: true
+          tags: |
+            ${{ env.DOCKER_IMAGE_PREFIX }}/sausage-backend:latest
+            ${{ env.DOCKER_IMAGE_PREFIX }}/sausage-backend:${{ github.sha }}
+          build-args: |
+            VERSION=${{ github.sha }}
+
+      - name: Build and push frontend
+        uses: docker/build-push-action@v6
+        with:
+          context: ./frontend
+          push: true
+          tags: |
+            ${{ env.DOCKER_IMAGE_PREFIX }}/sausage-frontend:latest
+            ${{ env.DOCKER_IMAGE_PREFIX }}/sausage-frontend:${{ github.sha }}
+
+      - name: Build and push backend-report
+        uses: docker/build-push-action@v6
+        with:
+          context: ./backend-report
+          push: true
+          tags: |
+            ${{ env.DOCKER_IMAGE_PREFIX }}/sausage-backend-report:latest
+            ${{ env.DOCKER_IMAGE_PREFIX }}/sausage-backend-report:${{ github.sha }}
+
   add_helm_chart_to_nexus:
-      name: Add Helm Chart To Nexus
-      runs-on: ubuntu-latest
-      needs: build_and_push_to_docker_hub
+    name: Package and upload Helm chart to Nexus
+    runs-on: ubuntu-latest
+    needs: build_and_push_to_docker_hub
+    env:
+      CHART_VERSION: 0.1.${{ github.run_number }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
 
-      steps:
-      #### Опишите необходимые шаги
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
 
-  # Деплоим приложения в кластер Kubernetes с помощью helm-чарт
+      - name: Lint Helm chart
+        run: |
+          helm lint "${HELM_CHART_PATH}" \
+            --set global.vault.host="${VAULT_HOST}" \
+            --set global.vault.vaultToken=dummy-token-for-lint
+
+      - name: Package Helm chart
+        run: |
+          helm package "${HELM_CHART_PATH}" \
+            --version "${CHART_VERSION}" \
+            --app-version "${GITHUB_SHA}" \
+            --destination .
+
+      - name: Upload Helm chart to Nexus
+        run: |
+          curl --fail --show-error \
+            --user "${NEXUS_HELM_REPO_USER}:${NEXUS_HELM_REPO_PASSWORD}" \
+            --upload-file "${HELM_RELEASE_NAME}-${CHART_VERSION}.tgz" \
+            "${NEXUS_HELM_REPO}/${HELM_RELEASE_NAME}-${CHART_VERSION}.tgz"
+
   deploy_helm_chart_to_kubernetes:
-      name: Deploy Helm Chart To Kubernetes
-      runs-on: ubuntu-latest
-      needs: add_helm_chart_to_nexus
+    name: Deploy Helm chart to Kubernetes
+    runs-on: ubuntu-latest
+    needs: add_helm_chart_to_nexus
+    env:
+      CHART_VERSION: 0.1.${{ github.run_number }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
 
-      steps:
-      #### Опишите необходимые шаги
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+
+      - name: Write kubeconfig
+        run: |
+          printf "%s" "${KUBE_CONFIG}" > kubeconfig.raw
+          awk 'found || /^apiVersion:/{found=1; print}' kubeconfig.raw > kubeconfig
+          test -s kubeconfig
+          chmod 600 kubeconfig
+          rm kubeconfig.raw
+
+      - name: Add Nexus Helm repository
+        run: |
+          helm repo add nexus "${NEXUS_HELM_REPO}" \
+            --username "${NEXUS_HELM_REPO_USER}" \
+            --password "${NEXUS_HELM_REPO_PASSWORD}"
+          helm repo update
+
+      - name: Deploy Sausage Store
+        run: |
+          helm upgrade --install "${HELM_RELEASE_NAME}" "nexus/${HELM_RELEASE_NAME}" \
+            --version "${CHART_VERSION}" \
+            --namespace "${SAUSAGE_STORE_NAMESPACE}" \
+            --kubeconfig kubeconfig \
+            --set backend.image="${DOCKER_IMAGE_PREFIX}/sausage-backend:${GITHUB_SHA}" \
+            --set frontend.image="${DOCKER_IMAGE_PREFIX}/sausage-frontend:${GITHUB_SHA}" \
+            --set backend-report.image="${DOCKER_IMAGE_PREFIX}/sausage-backend-report:${GITHUB_SHA}" \
+            --set frontend.ingress.host="${INGRESS_HOST}" \
+            --set global.vault.host="${VAULT_HOST}" \
+            --set global.vault.vaultToken="${VAULT_TOKEN}" \
+            --wait \
+            --timeout 10m
+
+      - name: Show deployed release
+        run: |
+          helm list \
+            --namespace "${SAUSAGE_STORE_NAMESPACE}" \
+            --kubeconfig kubeconfig
+
+      - name: Run post-deploy smoke tests
+        env:
+          KUBECONFIG_FILE: ${{ github.workspace }}/kubeconfig
+          NAMESPACE: ${{ env.SAUSAGE_STORE_NAMESPACE }}
+          RELEASE: ${{ env.HELM_RELEASE_NAME }}
+          INGRESS_HOST: ${{ env.INGRESS_HOST }}
+          CREATE_TEST_ORDER: "1"
+        run: scripts/acceptance-check.sh

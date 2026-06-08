@@ -11,6 +11,6 @@ spec:
   ports:
     - port: {{ .Values.service.port }}
       protocol: TCP
-      targetPort: {{ .Values.service.port }}
+      targetPort: {{ .Values.containerPort }}
   selector:
     app: {{ .Release.Name }}-{{ .Chart.Name }}

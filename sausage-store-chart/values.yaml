@@ -1,32 +1,35 @@
 global:
   imagePullPolicy: Always
-  ###vault:
-  ###  host: ip
-  ###  name: vault
-  ###  vaultToken: someToken
+  vault:
+    name: sausage-store-vault
+    host: ""
+    scheme: http
+    port: "8200"
+    vaultToken: ""
 
+environment: production
 
 frontend:
-### В чарте frontend отсутствуют некоторые важные файлы. Поймите какие и опишите их.
   replicas: 1
-  revisionHistoryLimit: 15
+  revisionHistoryLimit: 5
   strategy:
     type: Recreate
   service:
     port: 80
   ingress:
-    host: YOUR_STUDENT_HOSTNAME.students-projects.ru # Корректный домен будет указан в задании
+    host: front-norammoranos.2sem.students-projects.ru
     path: /
     pathType: Prefix
+    tlsSecretName: 2sem-students-projects-wildcard-secret
   containerPort: 80
-  image: YOUR_DOCKERHUB/sausage-frontend:latest
+  image: noranori/sausage-frontend:latest
   resources:
     requests:
-      memory: "128Mi"
+      memory: "96Mi"
       cpu: "100m"
     limits:
-      memory: "128Mi"
-      cpu: "1"
+      memory: "192Mi"
+      cpu: "250m"
   nginxConf: nginx.conf
 
 backend:
@@ -36,43 +39,105 @@ backend:
     scrape: "true"
   env:
     postgresUri: jdbc:postgresql://postgresql:5432/sausage-store
-    postgresUser: store
-    postgresPassword: storepassword
     reportPath: /logs/reports
     logPath: /logs
   service:
     port: 8080
-  revisionHistoryLimit: 15
+  revisionHistoryLimit: 5
   replicas: 1
   strategy:
-  ### Опишите стратегию RollingUpdate для бэкенда
-  image: YOUR_DOCKERHUB/sausage-backend:latest
-  imagePullPolicy: Always
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  image: noranori/sausage-backend:latest
   resources:
     requests:
-      memory: "256Mi"
-      cpu: "100m"
+      memory: "192Mi"
+      cpu: "150m"
     limits:
-      memory: "512Mi"
-      cpu: "1"
+      memory: "384Mi"
+      cpu: "500m"
   containerPort: 8080
   livenessProbe:
-  ### Опишите LivenessProbe для бэкенда
+    httpGet:
+      path: /actuator/health
+      port: 8080
+    initialDelaySeconds: 60
+    periodSeconds: 15
+    timeoutSeconds: 5
+    failureThreshold: 5
   vpa:
-  ### Опишите VPA для бэкенда
+    updatePolicy:
+      updateMode: "Off"
+    resourcePolicy:
+      containerPolicies:
+        - containerName: backend
+          controlledResources:
+            - cpu
+            - memory
 
 backend-report:
-### Опишите значения для backend-report
-### Приложение должно использовать стратегию Recreate
-### Приложение использует переменную PORT - порт, на котором оно запустится и DB - Uri-подключение к mongodb. 
-### DB положите в Secret, PORT в ConfigMap
-### Опишите HPA для backend-report
+  replicas: 1
+  revisionHistoryLimit: 5
+  strategy:
+    type: Recreate
+  image: noranori/sausage-backend-report:latest
+  service:
+    port: 8080
+  containerPort: 8080
+  config:
+    port: "8080"
+  secret:
+    db: mongodb://reports:reportspassword@mongodb:27017/sausage-store
+  resources:
+    requests:
+      memory: "64Mi"
+      cpu: "100m"
+    limits:
+      memory: "128Mi"
+      cpu: "200m"
+  hpa:
+    minReplicas: 1
+    maxReplicas: 5
+    targetCPUUtilizationPercentage: 75
 
 infra:
   postgresql:
-  ### Опишите необходимые переменные для развертывания PostgresQL в кластере Kubernetes
+    image: postgres:15-alpine
+    database: sausage-store
+    username: store
+    password: storepassword
+    containerPort: 5432
+    storage: 1Gi
+    resources:
+      requests:
+        memory: "192Mi"
+        cpu: "200m"
+      limits:
+        memory: "384Mi"
+        cpu: "500m"
   mongodb:
-    env:
-      MONGO_INITDB_ROOT_USERNAME: root
-      MONGO_INITDB_ROOT_PASSWORD: rootpassword
+    image: mongo:7.0
+    rootUsername: root
+    rootPassword: rootpassword
+    appDatabase: sausage-store
+    appUsername: reports
+    appPassword: reportspassword
     containerPort: 27017
+    storage: 1Gi
+    resources:
+      requests:
+        memory: "128Mi"
+        cpu: "50m"
+      limits:
+        memory: "256Mi"
+        cpu: "500m"
+    initJob:
+      resources:
+        requests:
+          memory: "64Mi"
+          cpu: "50m"
+        limits:
+          memory: "128Mi"
+          cpu: "250m"

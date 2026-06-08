@@ -3,6 +3,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: {{ .Release.Name }}-{{ .Chart.Name }}-conf
+  namespace: {{ .Release.Namespace }}
 data:
   {{ .Values.nginxConf }}: |
     user  nginx;

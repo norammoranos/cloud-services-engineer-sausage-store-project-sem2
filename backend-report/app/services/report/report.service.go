@@ -30,6 +30,7 @@ func (r *ReportService) SaveReport(ctx context.Context, reportingSource string) 
 	if err != nil {
 		return err
 	}
+	defer resp.Body.Close()
 
 	body, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
