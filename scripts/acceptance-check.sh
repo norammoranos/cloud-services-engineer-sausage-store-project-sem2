@@ -111,10 +111,14 @@ kubectl_cmd -n "${NAMESPACE}" rollout status "deployment/${RELEASE}-frontend" --
 
 log "MongoDB init job completion"
 kubectl_cmd -n "${NAMESPACE}" wait --for=condition=complete "job/mongodb-init" --timeout="${TIMEOUT}"
-mongodb_init_phase="$(kubectl_cmd -n "${NAMESPACE}" get pods -l job-name=mongodb-init \
-  -o 'jsonpath={.items[0].status.phase}')"
-printf 'mongodb-init pod phase=%s\n' "${mongodb_init_phase}"
-[[ "${mongodb_init_phase}" == "Succeeded" ]]
+mongodb_init_succeeded="$(kubectl_cmd -n "${NAMESPACE}" get job mongodb-init \
+  -o 'jsonpath={.status.succeeded}')"
+mongodb_init_pods="$(kubectl_cmd -n "${NAMESPACE}" get pods -l job-name=mongodb-init \
+  -o 'jsonpath={range .items[*]}{.metadata.name}={.status.phase}{"\n"}{end}')"
+printf 'mongodb-init job succeeded=%s\n' "${mongodb_init_succeeded}"
+printf '%s\n' "${mongodb_init_pods}"
+[[ "${mongodb_init_succeeded}" == "1" ]]
+grep -q '=Succeeded' <<< "${mongodb_init_pods}"
 
 log "VPA and HPA conditions"
 kubectl_cmd -n "${NAMESPACE}" wait \
@@ -183,9 +187,41 @@ else
 fi
 
 log "backend-report health"
+curl_pod_name="${RELEASE}-acceptance-curl"
+curl_pod_overrides="$(
+  cat <<JSON
+{
+  "spec": {
+    "containers": [
+      {
+        "name": "${curl_pod_name}",
+        "image": "curlimages/curl:8.8.0",
+        "command": [
+          "curl"
+        ],
+        "args": [
+          "-fsS",
+          "http://${RELEASE}-backend-report-service:8080/api/v1/health"
+        ],
+        "resources": {
+          "requests": {
+            "cpu": "25m",
+            "memory": "32Mi"
+          },
+          "limits": {
+            "cpu": "50m",
+            "memory": "64Mi"
+          }
+        }
+      }
+    ]
+  }
+}
+JSON
+)"
 kubectl_cmd -n "${NAMESPACE}" run "${RELEASE}-acceptance-curl" \
   --rm -i --restart=Never \
   --image=curlimages/curl:8.8.0 \
-  --command -- curl -fsS "http://${RELEASE}-backend-report-service:8080/api/v1/health"
+  --overrides="${curl_pod_overrides}"
 
 log "Acceptance checks passed"
