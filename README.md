@@ -183,7 +183,7 @@ docker run --rm --user 0 \
   -n r-devops-magistracy-project-2sem-1003690211
 ```
 
-Ожидаемый результат:
+Ожидаемые результаты:
 
 - `helm list` показывает release `sausage-store` со статусом `deployed`;
 - `postgresql`, `mongodb`, `backend`, `backend-report`, `frontend` работают;
