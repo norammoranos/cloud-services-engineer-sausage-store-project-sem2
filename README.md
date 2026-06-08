@@ -15,6 +15,7 @@
 | Kubernetes namespace | `r-devops-magistracy-project-2sem-1003690211` |
 | Helm release | `sausage-store` |
 | Ingress host | `front-norammoranos.2sem.students-projects.ru` |
+| Адрес системы для проверки | <https://front-norammoranos.2sem.students-projects.ru/> |
 | Docker images | `noranori/sausage-backend`, `noranori/sausage-frontend`, `noranori/sausage-backend-report` |
 | TLS secret | `2sem-students-projects-wildcard-secret` |
 
@@ -158,23 +159,40 @@ Jobs:
 
 ## Acceptance checks
 
-Pipeline запускает smoke tests автоматически в конце deploy job:
+Smoke test находится в файле:
 
 ```text
 scripts/acceptance-check.sh
 ```
 
-Этот же скрипт можно запустить локально после deploy:
+Pipeline запускает его автоматически в конце job `deploy_helm_chart_to_kubernetes`,
+после `helm upgrade --install`, `helm list` и ожидания готовности release. Этот же скрипт
+можно запустить локально после deploy:
 
 ```bash
 scripts/acceptance-check.sh
 ```
 
-Скрипт проверяет Helm release, `kubectl get po`, `kubectl get ing`, rollout workload'ов,
-`mongodb-init`, `describe vpa`, `describe hpa`, VPA/HPA conditions, Ingress, список товаров,
-оформление тестового заказа, recent logs без `fatal/panic/exception/error` и health `backend-report`.
-Он не печатает kubeconfig secrets. По умолчанию скрипт создает один тестовый заказ;
-чтобы пропустить POST `/api/orders`, используйте:
+В выводе smoke test показываются основные данные, которые нужны для проверки задания:
+
+- статус Helm release, включая `STATUS: deployed`;
+- список Kubernetes resources: pods, deployments, statefulsets, services, ingress, HPA, VPA и jobs;
+- отдельный вывод `kubectl get po` и `kubectl get ing` в формате, который ожидается в задании;
+- host ingress: `front-norammoranos.2sem.students-projects.ru`;
+- rollout status для MongoDB, PostgreSQL, backend, backend-report и frontend;
+- завершение `mongodb-init` job и pod phase `Succeeded`;
+- `describe vpa sausage-store-backend-vpa` со статусом `RecommendationProvided`;
+- `describe hpa sausage-store-backend-report-hpa` с min/max replicas, CPU target и `ScalingActive=True`;
+- проверка последних логов backend, backend-report и frontend на отсутствие `fatal`, `panic`, `exception`, `error`;
+- проверка frontend и `/api/products` через ingress;
+- оформление тестового заказа через `/api/orders` и проверка статуса `PAID`;
+- проверка health `backend-report` через внутренний сервис Kubernetes;
+- финальная строка `Acceptance checks passed`.
+
+Скрипт не печатает kubeconfig и значения secrets. Тела ответов `/api/products` и `/api/orders`
+сохраняются во временные файлы и используются для проверки, но не выводятся целиком в лог,
+чтобы лог оставался коротким. По умолчанию скрипт создает один тестовый заказ; чтобы
+пропустить POST `/api/orders`, используйте:
 
 ```bash
 CREATE_TEST_ORDER=0 scripts/acceptance-check.sh
